@@ -1,0 +1,19 @@
+# Requirements for Agent 2: Cross-Document Aggregation Agent (A2)
+# ================================================================
+# Core ML framework
+torch>=2.1.0
+# Transformers & sentence encoding
+transformers>=4.38.0
+sentence-transformers>=2.6.0
+# NLP utilities
+spacy>=3.7.0
+# Evaluation metrics
+rouge-score>=0.1.2
+bert-score>=0.3.13
+scikit-learn>=1.4.0        # for Adjusted Rand Index
+# Testing
+pytest>=8.0.0
+# Utilities
+numpy>=1.26.0
+tqdm>=4.66.0
+datasets>=2.18.0            # Hugging Face datasets (Multi-News)
