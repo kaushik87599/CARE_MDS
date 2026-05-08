@@ -1,12 +1,4 @@
-"""
-tests/test_pd_rope.py
-======================
-Unit tests for pd_rope.py — Positional Disentangling RoPE (PD-RoPE)
-
-Run with:
-    cd marl_mds_agent2
-    python -m pytest tests/test_pd_rope.py -v
-"""
+"""Unit tests for pd_rope.py — Positional Disentangling RoPE (PD-RoPE)"""
 
 import math
 
@@ -18,7 +10,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.modules.pd_rope import PDRoPE, RotaryEmbedding, _build_rotation_cache, _rotate_half, _apply_rope
+from src.modules.pd_rope import PDRoPE, RotaryEmbedding, initialize_rotation_angles, half_rotate, apply_rotation
 
 
 # ============================================================
@@ -36,84 +28,69 @@ def default_pd_rope():
 
 
 # ============================================================
-# 1. _build_rotation_cache
-# ============================================================
-
-class TestBuildRotationCache:
+class TestRotationInitialization:
     def test_output_shapes(self):
-        cos, sin = _build_rotation_cache(seq_len=32, dim=16)
-        assert cos.shape == (32, 8), f"Expected (32,8), got {cos.shape}"
-        assert sin.shape == (32, 8), f"Expected (32,8), got {sin.shape}"
+        cos, sin = initialize_rotation_angles(seq_len=32, dim=16)
+        assert cos.shape == (32, 8)
+        assert sin.shape == (32, 8)
 
     def test_unit_norm_at_position_zero(self):
-        """cos(0) should be 1, sin(0) should be 0 for all frequencies."""
-        cos, sin = _build_rotation_cache(seq_len=10, dim=8)
-        assert torch.allclose(cos[0], torch.ones(4)), "cos at p=0 should be 1"
-        assert torch.allclose(sin[0], torch.zeros(4)), "sin at p=0 should be 0"
+        cos, sin = initialize_rotation_angles(seq_len=10, dim=8)
+        assert torch.allclose(cos[0], torch.ones(4))
+        assert torch.allclose(sin[0], torch.zeros(4))
 
     def test_odd_dim_raises(self):
         with pytest.raises(AssertionError):
-            _build_rotation_cache(seq_len=10, dim=7)
+            initialize_rotation_angles(seq_len=10, dim=7)
 
     def test_values_are_bounded(self):
-        cos, sin = _build_rotation_cache(seq_len=1024, dim=64)
+        cos, sin = initialize_rotation_angles(seq_len=1024, dim=64)
         assert cos.abs().max() <= 1.0 + 1e-6
         assert sin.abs().max() <= 1.0 + 1e-6
 
     def test_device_support(self):
-        cos, sin = _build_rotation_cache(seq_len=10, dim=8, device=torch.device("cpu"))
+        cos, sin = initialize_rotation_angles(seq_len=10, dim=8, device=torch.device("cpu"))
         assert cos.device.type == "cpu"
 
 
 # ============================================================
-# 2. _rotate_half
-# ============================================================
-
-class TestRotateHalf:
+class TestHalfRotate:
     def test_output_shape_preserved(self):
         x = torch.randn(2, 10, 16)
-        out = _rotate_half(x)
+        out = half_rotate(x)
         assert out.shape == x.shape
 
     def test_double_rotation_is_negation(self):
-        """rotate_half(rotate_half(x)) should equal -x (complex i² = -1)."""
         x = torch.randn(3, 5, 8)
-        assert torch.allclose(_rotate_half(_rotate_half(x)), -x, atol=1e-6)
+        assert torch.allclose(half_rotate(half_rotate(x)), -x, atol=1e-6)
 
     def test_zero_vector(self):
         x = torch.zeros(2, 4, 8)
-        assert torch.all(_rotate_half(x) == 0)
+        assert torch.all(half_rotate(x) == 0)
 
 
 # ============================================================
-# 3. _apply_rope
-# ============================================================
-
-class TestApplyRope:
+class TestApplyRotation:
     def test_output_shape(self):
         x = torch.randn(2, 10, 16)
-        cos, sin = _build_rotation_cache(10, 16)
-        out = _apply_rope(x, cos, sin)
+        cos, sin = initialize_rotation_angles(10, 16)
+        out = apply_rotation(x, cos, sin)
         assert out.shape == x.shape
 
     def test_zero_position_is_identity(self):
-        """At position 0, cos=1 and sin=0, so output should equal input."""
         x = torch.randn(2, 1, 16)
         cos = torch.ones(1, 8)
         sin = torch.zeros(1, 8)
-        out = _apply_rope(x, cos, sin)
-        assert torch.allclose(out, x, atol=1e-6), "At p=0 RoPE should be identity"
+        out = apply_rotation(x, cos, sin)
+        assert torch.allclose(out, x, atol=1e-6)
 
     def test_norm_preservation(self):
-        """RoPE is an orthogonal transform — it must preserve vector norms."""
         x = torch.randn(4, 20, 32)
-        cos, sin = _build_rotation_cache(20, 32)
-        out = _apply_rope(x, cos, sin)
+        cos, sin = initialize_rotation_angles(20, 32)
+        out = apply_rotation(x, cos, sin)
         x_norm = torch.norm(x, dim=-1)
         out_norm = torch.norm(out, dim=-1)
-        assert torch.allclose(x_norm, out_norm, atol=1e-5), (
-            "RoPE should preserve L2 norm (orthogonal transform)"
-        )
+        assert torch.allclose(x_norm, out_norm, atol=1e-5)
 
 
 # ============================================================
