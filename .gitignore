@@ -2,7 +2,7 @@
 .venv/
 venv/
 env/
-
+CARE_MDS/myenv
 # Data and Datasets
 datasets/
 *.csv
@@ -32,3 +32,4 @@ Thumbs.db
 .env
 .flaskenv
 preprocessing/colab_pipeline.ipynb
+myenv

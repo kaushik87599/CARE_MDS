@@ -2,3 +2,6 @@
 *.safetensors filter=lfs diff=lfs merge=lfs -text
 *.npy filter=lfs diff=lfs merge=lfs -text
 *.pkl filter=lfs diff=lfs merge=lfs -text
+encoder_outputs/** filter=lfs diff=lfs merge=lfs -text
+cache/encoder_outputs/** filter=lfs diff=lfs merge=lfs -text
+**/cache/encoder_outputs/** filter=lfs diff=lfs merge=lfs -text
