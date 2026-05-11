@@ -9,11 +9,11 @@ load_dotenv()
 
 # The HF_TOKEN is now loaded into os.environ automatically
 
-def check_dataset():
+def check_dataset(ROOT_PATH='datasets'):
     datasets = {}
     
     # Path for Multi-News
-    multi_news_path = 'datasets/multi_news_saved'
+    multi_news_path = os.path.join(ROOT_PATH, 'multi_news_saved')
     if os.path.exists(multi_news_path):
         try:
             datasets['Multi-News'] = load_from_disk(multi_news_path)
@@ -24,7 +24,7 @@ def check_dataset():
         print(f"⚠️ Multi-News dataset not found at {multi_news_path}")
 
     # Path for CNN/Daily-News
-    cnn_path = 'datasets/cnn_dailymail_saved'
+    cnn_path = os.path.join(ROOT_PATH, 'cnn_dailymail_saved')
     if os.path.exists(cnn_path):
         try:
             datasets['CNN/Daily-News'] = load_from_disk(cnn_path)
