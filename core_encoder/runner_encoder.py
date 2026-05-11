@@ -2,6 +2,7 @@ import torch
 import os
 import sys
 from tqdm import tqdm
+from torch.utils.data import Dataset, DataLoader
 from loader import (load_packed_context, load_saved_tokenizer, get_encoder_from_model, set_device)
 
 def extract_sentences(packed_contexts):
@@ -73,7 +74,7 @@ def extract_hidden_states(outputs):
     # (batch_size, seq_len, hidden_dim)
     return hidden_states
 
-def save_encoder_output(cluster_id, hidden_states, inputs):
+def save_encoder_output(cluster_id, hidden_states, input_ids, attention_mask):
     """
     STEP 10 — Save Encoder Outputs
     """
@@ -83,13 +84,20 @@ def save_encoder_output(cluster_id, hidden_states, inputs):
     save_data = {
         "cluster_id": cluster_id,
         "hidden_states": hidden_states.cpu(),
-        "attention_mask": inputs["attention_mask"].cpu(),
-        "input_ids": inputs["input_ids"].cpu()
+        "attention_mask": attention_mask.cpu(),
+        "input_ids": input_ids.cpu()
     }
     
     file_path = os.path.join(save_dir, f"{cluster_id}.pt")
     torch.save(save_data, file_path)
-    # print(f"Saved encoder output for cluster {cluster_id} to {file_path}")
+
+class ClusterDataset(Dataset):
+    def __init__(self, cluster_texts):
+        self.data = cluster_texts
+    def __len__(self):
+        return len(self.data)
+    def __getitem__(self, idx):
+        return self.data[idx]
 
 def run_core_encoder():
     print("Starting core encoder...")
@@ -104,21 +112,25 @@ def run_core_encoder():
         packed_contexts = load_packed_context()
         cluster_texts = extract_sentences(packed_contexts)
 
-        all_hidden_states = []
+        # Batching Configuration
+        BATCH_SIZE = 4 # Conservative for 15GB VRAM. Adjust if needed.
+        dataset = ClusterDataset(cluster_texts)
+        dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 
-        for cluster in tqdm(cluster_texts, desc="Encoding clusters"):
-            
-            # Tokenize Packed Text
+        print(f"Processing {len(cluster_texts)} clusters with batch size {BATCH_SIZE}...")
+
+        for batch in tqdm(dataloader, desc="Encoding batches"):
+            cluster_ids = batch["cluster_id"]
+            texts = batch["text"]
+
+            # Tokenize Batch
             inputs = tokenizer(
-                cluster["text"],
+                texts,
                 truncation=True,
                 padding="max_length",
                 max_length=4096,
                 return_tensors="pt"
-            )
-            
-            # Move to device
-            inputs = {k: v.to(device) for k, v in inputs.items()}
+            ).to(device)
 
             # Create Global Attention Mask
             global_attention_mask = create_global_attention_mask(inputs["input_ids"])
@@ -127,38 +139,36 @@ def run_core_encoder():
             outputs = run_encoder_forward_pass(encoder, inputs, global_attention_mask)
 
             # Extract Hidden States
-            hidden_states = extract_hidden_states(outputs)
+            batch_hidden_states = extract_hidden_states(outputs)
             
             # SECTION 7 — Validate Dimensions
-            if hidden_states.ndim != 3:
-                print(f"CRITICAL ERROR: Hidden states dimension mismatch. Expected 3 (batch, seq, dim), got {hidden_states.ndim}")
+            if batch_hidden_states.ndim != 3:
+                print(f"CRITICAL ERROR: Hidden states dimension mismatch. Expected 3 (batch, seq, dim)")
                 sys.exit(1)
             
-            if hidden_states.shape[-1] != 1024:
-                print(f"CRITICAL ERROR: Hidden dimension mismatch. Expected 1024 (LED-large), got {hidden_states.shape[-1]}")
+            if batch_hidden_states.shape[-1] != 1024:
+                print(f"CRITICAL ERROR: Hidden dimension mismatch. Expected 1024 (LED-large), got {batch_hidden_states.shape[-1]}")
                 sys.exit(1)
 
-            # print(f"Extracted hidden states with shape: {hidden_states.shape}")
+            # STEP 10: Save Encoder Outputs Individually
+            for i in range(len(cluster_ids)):
+                save_encoder_output(
+                    cluster_ids[i], 
+                    batch_hidden_states[i:i+1], # Slice to keep 3D shape
+                    inputs["input_ids"][i:i+1],
+                    inputs["attention_mask"][i:i+1]
+                )
             
-            # STEP 10: Save Encoder Outputs
-            save_encoder_output(cluster["cluster_id"], hidden_states, inputs)
-            
-            all_hidden_states.append({
-                "cluster_id": cluster["cluster_id"],
-                "hidden_states": hidden_states.cpu() # Store on CPU to save memory
-            })
-
-            # CLEAR GPU CACHE (Only if needed, currently offloaded to end for speed)
-            # if torch.cuda.is_available():
-            #     torch.cuda.empty_cache()
+            # CLEAR GPU CACHE is generally not needed every batch with FP16 + Batching 
+            # unless we are right at the edge of OOM.
         
         # FINAL CLEANUP
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
-        print("Saved encoder outputs")
+        print("Saved all encoder outputs.")
         print("Core encoder pipeline completed successfully.")
-        return all_hidden_states
+        return None # Return None as we no longer store results in memory
 
     except torch.cuda.OutOfMemoryError:
         print("CRITICAL ERROR: GPU Out of Memory. Consider reducing max_length or using a smaller batch size.")
