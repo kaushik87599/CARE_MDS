@@ -54,3 +54,30 @@ def count_entities_batch(texts, batch_size=64):
         
     # nlp.pipe is heavily optimized for processing multiple texts at once
     return [len(doc.ents) for doc in nlp.pipe(texts, batch_size=batch_size, n_process=n_process)]
+
+def extract_entities(text):
+    """
+    Extracts entities from text as a list of (text, label) tuples.
+    """
+    nlp = _get_nlp()
+    try:
+        doc = nlp(text)
+        return [(ent.text, ent.label_) for ent in doc.ents]
+    except Exception as e:
+        print("Error: SpaCy NER failed on: ", text[:100], "...")
+        return []
+
+def extract_entities_batch(texts, batch_size=64):
+    """
+    Extracts entities from a list of texts in batches.
+    Returns a list of lists of (text, label) tuples.
+    """
+    nlp = _get_nlp()
+    n_process = 1
+    if not spacy.prefer_gpu():
+        n_process = os.cpu_count() or 1
+        
+    results = []
+    for doc in nlp.pipe(texts, batch_size=batch_size, n_process=n_process):
+        results.append([(ent.text, ent.label_) for ent in doc.ents])
+    return results

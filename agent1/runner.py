@@ -1,6 +1,18 @@
 from sentence_splitting import document_split, sentence_split
 from utils import load_multi_dataset
 from sentence_embedding import generate_sentence_embedding,get_embedding
+import sys
+import os
+
+# Add root to sys.path to allow importing from other modules if needed
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+try:
+    from preprocessing.utils.ner_utils import extract_entities_batch
+except ImportError:
+    # Fallback if structure is different
+    print("Warning: Could not import extract_entities_batch from preprocessing.utils.ner_utils")
+    def extract_entities_batch(texts, batch_size=64): return [[] for _ in texts]
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import pickle
@@ -20,7 +32,7 @@ from tqdm import tqdm
 
 
 
-if __name__ == "__main__":
+def run_agent1():
     #loading only the short version of multi_news_dataset which has 4k train, 500,500, test and valid data
     df = load_multi_dataset()
 
@@ -41,6 +53,10 @@ if __name__ == "__main__":
                 continue
             # here we perform the sentence encoding on the sentences list per document
             sentence_embedding = generate_sentence_embedding(sentences)
+            
+            # Extract entities for each sentence
+            sentence_entities = extract_entities_batch(sentences)
+            
             # now we perform the salient scoring
 
             # Compute document centroid
@@ -55,7 +71,8 @@ if __name__ == "__main__":
             ).flatten()
             # Attach score to sentence
             doc_ids = [doc_id] * len(sentences)
-            sentence_score_embedding_list = list(zip(sentences, scores, sentence_embedding, doc_ids)) #doc_id tells which document it came from.
+            # Format: (sentence, score, embedding, doc_id, entities)
+            sentence_score_embedding_list = list(zip(sentences, scores, sentence_embedding, doc_ids, sentence_entities)) 
             # Sort by score
             ranked = sorted(
                 sentence_score_embedding_list,
@@ -74,9 +91,9 @@ if __name__ == "__main__":
             
             threshold = 0.85
             selected = []
-            for sent, score, emb, d_id in ranked:
+            for sent, score, emb, d_id, ents in ranked:
                 if not selected:
-                    selected.append((sent, score, emb, d_id))
+                    selected.append((sent, score, emb, d_id, ents))
                     continue
 
                 # Compare with already selected sentences
@@ -92,7 +109,7 @@ if __name__ == "__main__":
                         break
 
                 if not is_redundant:
-                    selected.append((sent, score, emb, d_id))
+                    selected.append((sent, score, emb, d_id, ents))
 
             top_sentences = selected[:30]
             all_top_sentences.extend(top_sentences)
@@ -116,7 +133,7 @@ if __name__ == "__main__":
             #     {
             #         "cluster_id": int,
             #         "packed_context": [
-            #             (sentence: str, score: np.float32, embedding: np.ndarray, doc_id: int), ...
+            #             (sentence: str, score: np.float32, embedding: np.ndarray, doc_id: int, entities: list), ...
             #         ]
             #     }, ...
             # ]
@@ -124,9 +141,14 @@ if __name__ == "__main__":
 
     # Save all packed clusters to a pickle file
     output_path = "cache/cache/packed_contexts.pkl"
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "wb") as f:
         pickle.dump(final_results, f)
     print(f"Saved {len(final_results)} packed clusters to {output_path}")
+
+if __name__ == "__main__":
+    run_agent1()
 
 
         

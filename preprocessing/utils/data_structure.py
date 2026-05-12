@@ -9,10 +9,10 @@ from transformers import pipeline
 
 try:
     from .tokenizer_utils import get_tokenizer
-    from .ner_utils import count_entities, count_entities_batch
+    from .ner_utils import count_entities, count_entities_batch, extract_entities_batch
 except ImportError:
     from tokenizer_utils import get_tokenizer
-    from ner_utils import count_entities, count_entities_batch
+    from ner_utils import count_entities, count_entities_batch, extract_entities_batch
 
 # Global model caches to avoid reloading
 _embed_model = None
@@ -143,17 +143,18 @@ def analyze(dataset, article_col='article', summary_col='highlights', dataset_na
     metrics['contradiction_frequency'] = float(np.mean(contradiction_scores))
     print(f'Finished NLI analysis in {time.time()-t0:.2f}s')
 
-    # 5. Entity Density
+    # 5. Entity Density & Extraction
     t0 = time.time()
     batch_size = 32 if torch.cuda.is_available() else 128
-    # We want to save the actual entities too if requested, but for density we need counts
-    entity_counts = count_entities_batch(articles, batch_size=batch_size)
+    # Extract actual entities for reuse in EntityAligner
+    all_entities = extract_entities_batch(articles, batch_size=batch_size)
+    entity_counts = [len(ents) for ents in all_entities]
     
     # Calculate density per article
     densities = [count / length if length > 0 else 0 for count, length in zip(entity_counts, article_lengths)]
     metrics['avg_entity_density'] = float(np.mean(densities))
     metrics['entity_density_list'] = densities # Store list for analysis_results.json
-    print(f'Finished entity metrics in {time.time()-t0:.2f}s')
+    print(f'Finished entity metrics & extraction in {time.time()-t0:.2f}s')
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache() 
@@ -161,7 +162,7 @@ def analyze(dataset, article_col='article', summary_col='highlights', dataset_na
     # Prepare final output
     results['metrics'] = metrics
     results['tokenized'] = tokenized_articles
-    results['entities'] = entity_counts # Or actual entities if needed, but counts are usually what's meant here
+    results['entities'] = all_entities # Store actual entity strings (list of lists of (text, label) tuples)
     results['embeddings'] = embeddings
 
     print(f"Total analysis time: {time.time() - start_time:.2f}s")

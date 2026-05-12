@@ -3,13 +3,13 @@
 venv/
 env/
 CARE_MDS/myenv
+
 # Data and Datasets
 datasets/
 *.csv
 *.jsonl
 *.parquet
 *.pt
-*.pth
 
 # Python specific
 __pycache__/
@@ -17,6 +17,7 @@ __pycache__/
 *$py.class
 .pytest_cache/
 .coverage
+.pyc
 htmlcov/
 
 # Jupyter Notebooks
@@ -33,3 +34,6 @@ Thumbs.db
 .flaskenv
 preprocessing/colab_pipeline.ipynb
 myenv
+
+# folders/files
+scratch/
