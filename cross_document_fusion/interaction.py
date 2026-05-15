@@ -77,7 +77,7 @@ class FusionInteraction(nn.Module):
         for idx in conflicting_indices:
             # We add a subtle signal to these vectors so the decoder 
             # knows they contain "spicy" (conflicting) information.
-            refined_vectors[idx] = refined_vectors[idx] + self.conflict_bias
+            refined_vectors[idx] = refined_vectors[idx] + self.conflict_bias.to(refined_vectors.dtype)
             
         return refined_vectors
 

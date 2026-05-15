@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 import nltk
+from tqdm import tqdm
 from utils import (
     check_dataset, analyze, save_cache, setup_cache_dirs,
     save_fine_tuned_transformer, save_fine_tuned_ner
@@ -38,7 +39,7 @@ def main():
     for dataset_name, dataset in datasets.items():
         print(f"\n{'='*20} Analyzing Dataset: {dataset_name} {'='*20}")
         
-        for split in splits:
+        for split in tqdm(splits, desc=f"Splits in {dataset_name}"):
             if split not in dataset:
                 print(f"⚠️ Split '{split}' not found in {dataset_name}. Skipping...")
                 continue
@@ -52,6 +53,16 @@ def main():
             if dataset_name == 'Multi-News':
                 article_col = 'document'
                 summary_col = 'summary'
+                
+            # Filter out corrupt/empty records before sampling
+            initial_len = len(split_dataset)
+            split_dataset = split_dataset.filter(
+                lambda x: x[article_col] is not None and str(x[article_col]).strip() != "" and 
+                          x[summary_col] is not None and str(x[summary_col]).strip() != ""
+            )
+            filtered_len = len(split_dataset)
+            if initial_len != filtered_len:
+                print(f"⚠️ Warning: Filtered out {initial_len - filtered_len} empty/corrupted records from {split_dataset}.")
                 
             # 5. Apply Downsampling
             target_size = sampling_targets.get(dataset_name, {}).get(split)

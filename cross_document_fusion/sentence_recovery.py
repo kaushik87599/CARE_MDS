@@ -15,8 +15,6 @@ class SentenceRepresenter:
         ln = len(sub_seq)
         if ln == 0:
             return None
-        
-        # Search for sub_seq in main_seq
         for i in range(start_idx, len(main_seq) - ln + 1):
             if main_seq[i:i+ln] == sub_seq:
                 return (i, i+ln)
@@ -25,56 +23,38 @@ class SentenceRepresenter:
     def map_sentences_to_tokens(self, input_ids: torch.Tensor, sentences: List[str]) -> List[Optional[Tuple[int, int]]]:
         """
         Maps each sentence to its corresponding token span in the input_ids.
-        Uses the same join logic (" ".join(sentences)) as Phase 5.
         """
         tokens = input_ids.squeeze().tolist()
-        if isinstance(tokens, int): # Handle single token case if squeezed too much
+        if isinstance(tokens, int):
             tokens = [tokens]
             
         spans = []
         current_pos = 0
         
         for i, sent in enumerate(sentences):
-            # Replicate join logic: spaces are added between sentences
             text_to_tokenize = sent
             if i > 0:
                 text_to_tokenize = " " + sent
             
-            # Get tokens for this sentence fragment (without special tokens like <s> or </s>)
             sent_tokens = self.tokenizer.encode(text_to_tokenize, add_special_tokens=False)
-            
-            # Find the sub-sequence in the cluster's input_ids
             match = self.find_subsequence(tokens, sent_tokens, current_pos)
             
             if match:
                 spans.append(match)
-                current_pos = match[1] # Update search position to end of current match
+                current_pos = match[1]
             else:
-                # Fallback: try without the leading space if match failed (might happen for first sentence or truncation)
                 sent_tokens_alt = self.tokenizer.encode(sent, add_special_tokens=False)
                 match_alt = self.find_subsequence(tokens, sent_tokens_alt, current_pos)
                 if match_alt:
                     spans.append(match_alt)
                     current_pos = match_alt[1]
                 else:
-                    # Not found (likely truncated in Phase 5 due to 4096 limit)
                     spans.append(None)
-        
         return spans
 
     def recover_vectors(self, hidden_states: torch.Tensor, input_ids: torch.Tensor, packed_context: List[Any]) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Computes sentence-level vectors and extracts doc_ids.
-        
-        Args:
-            hidden_states: (1, seq_len, 1024)
-            input_ids: (1, seq_len)
-            packed_context: List of (sentence, score, embedding, doc_id) tuples.
-            
-        Returns:
-            Tuple of (sentence_vectors, doc_ids).
-            sentence_vectors shape: (num_sentences, 1024)
-            doc_ids shape: (num_sentences,)
         """
         sentences = [item[0] for item in packed_context]
         doc_ids_list = [item[3] for item in packed_context]
@@ -89,16 +69,15 @@ class SentenceRepresenter:
             if span:
                 start, end = span
                 sent_hs = hidden_states[0, start:end, :]
-                
                 if sent_hs.size(0) > 0:
                     vec = torch.mean(sent_hs, dim=0)
                     sentence_vectors.append(vec)
                 else:
-                    sentence_vectors.append(torch.zeros(hidden_dim, device=device))
+                    sentence_vectors.append(torch.zeros(hidden_dim, device=device, dtype=hidden_states.dtype))
             else:
-                sentence_vectors.append(torch.zeros(hidden_dim, device=device))
+                sentence_vectors.append(torch.zeros(hidden_dim, device=device, dtype=hidden_states.dtype))
         
         return torch.stack(sentence_vectors), torch.tensor(doc_ids_list, device=device)
 
 if __name__ == "__main__":
-    print("SentenceRepresenter class defined for Phase 6 Step 2.")
+    print("SentenceRepresenter class defined for Phase 5 Step 2.")

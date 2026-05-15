@@ -37,3 +37,10 @@ myenv
 
 # folders/files
 scratch/
+*.zip
+*.pdf
+*.docx
+Internship_Report_Draft.md
+whole_care2.ipynb
+CARE_MDS.code-workspace
+whole_care_MDS.ipynb

@@ -1,6 +1,6 @@
-from sentence_splitting import document_split, sentence_split
-from utils import load_multi_dataset
-from sentence_embedding import generate_sentence_embedding,get_embedding
+from agent1.sentence_splitting import document_split, sentence_split
+from agent1.utils import load_multi_dataset
+from agent1.sentence_embedding import generate_sentence_embedding, get_embedding
 import sys
 import os
 
@@ -42,102 +42,105 @@ def run_agent1():
     final_results = []
     print(f"Starting processing for {len(df)} clusters...")
     for idx,row in tqdm(df.iterrows(), total=len(df), desc="Clusters"):
-        document_row = row["document"]
-        documents = document_split(document_row)
-        all_top_sentences = []
-        for doc_idx, doc in enumerate(tqdm(documents, desc="Documents", leave=False)):
-            doc_id = doc_idx
+        try:
+            document_row = row["document"]
             
-            sentences = sentence_split(doc)
-            if not sentences:
+            if document_row is None or str(document_row).strip() == "":
+                print(f"⚠️ Warning: Empty document encountered at index {idx}. Skipping.")
                 continue
-            # here we perform the sentence encoding on the sentences list per document
-            sentence_embedding = generate_sentence_embedding(sentences)
-            
-            # Extract entities for each sentence
-            sentence_entities = extract_entities_batch(sentences)
-            
-            # now we perform the salient scoring
 
-            # Compute document centroid
+            documents = document_split(document_row)
             
-            # 𝑐𝑒𝑛𝑡𝑟𝑜𝑖𝑑= 1/N ∑ᵢ 𝑒ᵢ
-            centroid = np.mean(sentence_embedding,axis=0)
-            # Compute salience score for each sentence
-            # score = 𝑐𝑜𝑠𝑖𝑛𝑒Similarity(𝑒ᵢ, 𝑐𝑒𝑛𝑡𝑟𝑜𝑖𝑑) higher score = more important sentence
-            scores = cosine_similarity(
-                sentence_embedding,
-                centroid.reshape(1, -1)
-            ).flatten()
-            # Attach score to sentence
-            doc_ids = [doc_id] * len(sentences)
-            # Format: (sentence, score, embedding, doc_id, entities)
-            sentence_score_embedding_list = list(zip(sentences, scores, sentence_embedding, doc_ids, sentence_entities)) 
-            # Sort by score
-            ranked = sorted(
-                sentence_score_embedding_list,
+            # Pre-process all sentences in the cluster to batch Embeddings and NER
+            all_cluster_sentences = []
+            doc_sentence_mappings = [] # list of indices into all_cluster_sentences
+            
+            curr_idx = 0
+            for doc in documents:
+                sents = sentence_split(doc)
+                indices = list(range(curr_idx, curr_idx + len(sents)))
+                doc_sentence_mappings.append(indices)
+                all_cluster_sentences.extend(sents)
+                curr_idx += len(sents)
+                
+            if not all_cluster_sentences:
+                print(f"⚠️ Warning: No valid sentences found in cluster {idx}. Skipping.")
+                continue
+
+            # BATCH PROCESSING (Huge speedup)
+            # 1. Generate all embeddings for the cluster at once
+            cluster_embeddings = generate_sentence_embedding(all_cluster_sentences)
+            # 2. Extract all entities for the cluster at once
+            cluster_entities = extract_entities_batch(all_cluster_sentences)
+            
+            all_top_sentences = []
+            for doc_idx, indices in enumerate(doc_sentence_mappings):
+                if not indices:
+                    continue
+                
+                # Recover document-specific data from cluster batches
+                sentences = [all_cluster_sentences[i] for i in indices]
+                sentence_embedding = cluster_embeddings[indices]
+                sentence_entities = [cluster_entities[i] for i in indices]
+                
+                doc_id = doc_idx
+                
+                # Compute document centroid
+                centroid = np.mean(sentence_embedding, axis=0)
+                
+                # Compute salience score
+                scores = cosine_similarity(
+                    sentence_embedding,
+                    centroid.reshape(1, -1)
+                ).flatten()
+                
+                doc_ids = [doc_id] * len(sentences)
+                sentence_score_embedding_list = list(zip(sentences, scores, sentence_embedding, doc_ids, sentence_entities)) 
+                
+                ranked = sorted(
+                    sentence_score_embedding_list,
+                    key=lambda x: x[1],
+                    reverse=True
+                )
+
+                # Redundancy Filtering (Vectorized)
+                threshold = 0.85
+                selected = []
+                selected_embs = []
+                
+                for sent, score, emb, d_id, ents in ranked:
+                    if not selected:
+                        selected.append((sent, score, emb, d_id, ents))
+                        selected_embs.append(emb)
+                        continue
+
+                    similarities = cosine_similarity(emb.reshape(1, -1), np.array(selected_embs))[0]
+                    if np.max(similarities) <= threshold:
+                        selected.append((sent, score, emb, d_id, ents))
+                        selected_embs.append(emb)
+
+                top_sentences = selected[:30]
+                all_top_sentences.extend(top_sentences)
+
+            # GLOBAL ranking across cluster
+            # Entire cluster competes globally so truly salient sentences survive
+            all_top_sentences = sorted(
+                all_top_sentences,
                 key=lambda x: x[1],
                 reverse=True
             )
+            final_cluster_context = all_top_sentences[:30]
 
-            # Redundancy Filtering
-
-            # Now compare:
-            # top sentence
-            # remaining sentences
-            # using cosine similarity.
-            # If similarity > 0.85:
-            # remove duplicate.
-            
-            threshold = 0.85
-            selected = []
-            for sent, score, emb, d_id, ents in ranked:
-                if not selected:
-                    selected.append((sent, score, emb, d_id, ents))
-                    continue
-
-                # Compare with already selected sentences
-                is_redundant = False
-                for s_selected in selected:
-                    similarity = cosine_similarity(
-                        emb.reshape(1, -1),
-                        s_selected[2].reshape(1, -1)
-                    )[0][0]
-
-                    if similarity > threshold:
-                        is_redundant = True
-                        break
-
-                if not is_redundant:
-                    selected.append((sent, score, emb, d_id, ents))
-
-            top_sentences = selected[:30]
-            all_top_sentences.extend(top_sentences)
-
-        # GLOBAL ranking across cluster
-        # Entire cluster competes globally so truly salient sentences survive
-        all_top_sentences = sorted(
-            all_top_sentences,
-            key=lambda x: x[1],
-            reverse=True
-        )
-        final_cluster_context = all_top_sentences[:30]
-
-        # SAVE RESULTS
-        packed_cluster = {
-            "cluster_id": idx,
-            "packed_context": final_cluster_context
-        }
-            # Format of final_results:
-            # [
-            #     {
-            #         "cluster_id": int,
-            #         "packed_context": [
-            #             (sentence: str, score: np.float32, embedding: np.ndarray, doc_id: int, entities: list), ...
-            #         ]
-            #     }, ...
-            # ]
-        final_results.append(packed_cluster)
+            # SAVE RESULTS
+            packed_cluster = {
+                "cluster_id": idx,
+                "packed_context": final_cluster_context
+            }
+            final_results.append(packed_cluster)
+        
+        except Exception as e:
+            print(f"\n❌ Error processing cluster {idx}: {e}. Skipping to prevent pipeline crash.")
+            continue
 
     # Save all packed clusters to a pickle file
     output_path = "cache/cache/packed_contexts.pkl"

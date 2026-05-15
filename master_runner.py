@@ -13,23 +13,25 @@ def setup_environment():
     """
     print("🛠️ Setting up environment...")
     
-    # Get absolute path to the root directory
+    # Memory Management: Prevent fragmentation
+    os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
+    import gc
     root_dir = os.path.abspath(os.path.dirname(__file__))
     if root_dir not in sys.path:
         sys.path.insert(0, root_dir)
     
     # Ensure critical directories exist
     required_dirs = [
-        "cache",
-        "cache/cache",
-        "cache/encoder_outputs",
-        "cache/encoder_shards",
-        "cache/fusion",
-        "cache/entities",
-        "cache/contradiction",
-        "outputs",
-        "outputs/generated_summaries",
-        "models"
+        os.getenv("CACHE_DIR", "cache"),
+        os.getenv("PACKED_CACHE_DIR", "cache/cache"),
+        os.getenv("ENCODER_OUT_DIR", "cache/encoder_outputs"),
+        os.getenv("SHARD_DIR", "cache/encoder_shards"),
+        os.getenv("FUSION_DIR", "cache/fusion"),
+        os.getenv("ENTITY_DIR", "cache/entities"),
+        os.getenv("CONTRADICTION_DIR", "cache/contradiction"),
+        os.getenv("BASE_OUTPUT_DIR", "outputs"),
+        os.getenv("OUTPUT_DIR", "outputs/generated_summaries"),
+        os.getenv("MODELS_DIR", "models")
     ]
     for d in required_dirs:
         os.makedirs(d, exist_ok=True)
@@ -61,6 +63,8 @@ def run_phase(name, func, *args, **kwargs):
         
         # Aggressive memory cleanup for Colab
         if torch.cuda.is_available():
+            import gc
+            gc.collect()
             torch.cuda.empty_cache()
             
     except Exception as e:

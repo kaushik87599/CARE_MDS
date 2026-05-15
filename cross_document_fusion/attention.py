@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+from typing import Optional
 
 class CrossDocumentAttention(nn.Module):
     """
@@ -36,7 +37,7 @@ class CrossDocumentAttention(nn.Module):
             # Shape: (num_sentences, num_sentences)
             # same_doc = 1, cross_doc = 0
             doc_ids = doc_ids.to(x.device)
-            relation_matrix = (doc_ids.unsqueeze(1) == doc_ids.unsqueeze(0)).float()
+            relation_matrix = (doc_ids.unsqueeze(1) == doc_ids.unsqueeze(0)).to(x.dtype)
             
             # For attention bias, we use this matrix. 
             # PyTorch's F.scaled_dot_product_attention adds the mask to the scores.
@@ -65,9 +66,10 @@ class CrossDocumentFusionLayer(nn.Module):
         self.attention = CrossDocumentAttention(hidden_dim)
         self.norm = nn.LayerNorm(hidden_dim)
 
-    def forward(self, sentence_vectors: torch.Tensor) -> torch.Tensor:
+    def forward(self, sentence_vectors: torch.Tensor, doc_ids: Optional[torch.Tensor] = None) -> torch.Tensor:
         # Step 3: Interaction via Cross-Document Attention
-        attended = self.attention(sentence_vectors)
+        # Now passing doc_ids to enable document-aware bias
+        attended = self.attention(sentence_vectors, doc_ids)
         
         # Adding a residual connection and norm for stability
         # (Standard practice in transformer-style fusion)

@@ -1,6 +1,6 @@
 import torch
 import spacy
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 class EntityAligner:
     """

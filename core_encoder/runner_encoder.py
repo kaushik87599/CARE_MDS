@@ -3,7 +3,7 @@ import os
 import sys
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
-from loader import (load_packed_context, load_saved_tokenizer, get_encoder_from_model, set_device)
+from .loader import (load_packed_context, load_saved_tokenizer, get_encoder_from_model, set_device)
 
 def extract_sentences(packed_contexts):
     """
@@ -20,27 +20,34 @@ def extract_sentences(packed_contexts):
     
     # Iterate through each cluster
     for cluster in tqdm(packed_contexts, desc="Extracting text"):
-        if "cluster_id" not in cluster or "packed_context" not in cluster:
-            print(f"CRITICAL ERROR: Invalid cluster structure in packed contexts. Keys 'cluster_id' and 'packed_context' are required.")
-            sys.exit(1)
-            
-        cluster_id = cluster["cluster_id"]
-        
-        # Extract only the sentence string (the 0th element in each tuple)
         try:
-            sentences = [item[0] for item in cluster["packed_context"]]
-        except (IndexError, TypeError) as e:
-            print(f"CRITICAL ERROR: Invalid packed sentence format in cluster {cluster_id}. Expected (sentence, score, embedding, doc_id).")
-            print(f"Details: {e}")
-            sys.exit(1)
-        
-        # Convert into one text block
-        text_block = " ".join(sentences)
-        
-        cluster_texts.append({
-            "cluster_id": cluster_id,
-            "text": text_block
-        })
+            if "cluster_id" not in cluster or "packed_context" not in cluster:
+                print(f"⚠️ Warning: Invalid cluster structure in packed contexts. Skipping.")
+                continue
+                
+            cluster_id = cluster["cluster_id"]
+            
+            # Extract only the sentence string (the 0th element in each tuple)
+            try:
+                sentences = [item[0] for item in cluster["packed_context"]]
+                if not sentences:
+                    print(f"⚠️ Warning: Empty sentence list in cluster {cluster_id}. Skipping.")
+                    continue
+            except (IndexError, TypeError) as e:
+                print(f"⚠️ Warning: Invalid packed sentence format in cluster {cluster_id}. Expected (sentence, score, embedding, doc_id).")
+                print(f"Details: {e}")
+                continue
+            
+            # Convert into one text block
+            text_block = " ".join(sentences)
+            
+            cluster_texts.append({
+                "cluster_id": cluster_id,
+                "text": text_block
+            })
+        except Exception as e:
+            print(f"⚠️ Warning: Unexpected error processing cluster: {e}. Skipping.")
+            continue
     
     print(f"Successfully converted {len(cluster_texts)} clusters into text blocks.")
     return cluster_texts
@@ -77,8 +84,14 @@ def extract_hidden_states(outputs):
 def save_encoder_output(cluster_id, hidden_states, input_ids, attention_mask):
     """
     STEP 10 — Save Encoder Outputs
+    Using Local Storage (/content) if available for speed.
     """
-    save_dir = "cache/encoder_outputs"
+    # Detect if we are in Colab and use local disk for high-speed I/O
+    if os.path.exists("/content"):
+        save_dir = "/content/encoder_outputs"
+    else:
+        save_dir = "cache/encoder_outputs"
+        
     os.makedirs(save_dir, exist_ok=True)
     
     save_data = {
@@ -109,55 +122,68 @@ def run_core_encoder():
         encoder.to(device)
         encoder.eval()
         
+        print("🔍 Step 1: Loading results from Phase 2 (packed_contexts.pkl)...")
         packed_contexts = load_packed_context()
+        
+        print("🧪 Step 2: Extracting sentences and building text blocks...")
         cluster_texts = extract_sentences(packed_contexts)
-
+        
+        print("📋 Step 3: Preparing dataset and dataloader...")
         # Batching Configuration
         BATCH_SIZE = 4 # Conservative for 15GB VRAM. Adjust if needed.
         dataset = ClusterDataset(cluster_texts)
         dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
-
-        print(f"Processing {len(cluster_texts)} clusters with batch size {BATCH_SIZE}...")
+        
+        print(f"🚀 Step 4: Starting forward pass for {len(cluster_texts)} clusters (Batch Size: {BATCH_SIZE})...")
 
         for batch in tqdm(dataloader, desc="Encoding batches"):
-            cluster_ids = batch["cluster_id"]
-            texts = batch["text"]
+            try:
+                cluster_ids = batch["cluster_id"]
+                texts = batch["text"]
 
-            # Tokenize Batch
-            inputs = tokenizer(
-                texts,
-                truncation=True,
-                padding="max_length",
-                max_length=4096,
-                return_tensors="pt"
-            ).to(device)
+                # Tokenize Batch
+                inputs = tokenizer(
+                    texts,
+                    truncation=True,
+                    padding="max_length",
+                    max_length=4096,
+                    return_tensors="pt"
+                ).to(device)
 
-            # Create Global Attention Mask
-            global_attention_mask = create_global_attention_mask(inputs["input_ids"])
+                # Create Global Attention Mask
+                global_attention_mask = create_global_attention_mask(inputs["input_ids"])
 
-            # Run Encoder Forward Pass
-            outputs = run_encoder_forward_pass(encoder, inputs, global_attention_mask)
+                # Run Encoder Forward Pass
+                outputs = run_encoder_forward_pass(encoder, inputs, global_attention_mask)
 
-            # Extract Hidden States
-            batch_hidden_states = extract_hidden_states(outputs)
-            
-            # SECTION 7 — Validate Dimensions
-            if batch_hidden_states.ndim != 3:
-                print(f"CRITICAL ERROR: Hidden states dimension mismatch. Expected 3 (batch, seq, dim)")
-                sys.exit(1)
-            
-            if batch_hidden_states.shape[-1] != 1024:
-                print(f"CRITICAL ERROR: Hidden dimension mismatch. Expected 1024 (LED-large), got {batch_hidden_states.shape[-1]}")
-                sys.exit(1)
+                # Extract Hidden States
+                batch_hidden_states = extract_hidden_states(outputs)
+                
+                # SECTION 7 — Validate Dimensions
+                if batch_hidden_states.ndim != 3:
+                    print(f"⚠️ Warning: Hidden states dimension mismatch. Expected 3 (batch, seq, dim). Skipping batch.")
+                    continue
+                
+                if batch_hidden_states.shape[-1] != 1024:
+                    print(f"⚠️ Warning: Hidden dimension mismatch. Expected 1024 (LED-large), got {batch_hidden_states.shape[-1]}. Skipping batch.")
+                    continue
 
-            # STEP 10: Save Encoder Outputs Individually
-            for i in range(len(cluster_ids)):
-                save_encoder_output(
-                    cluster_ids[i], 
-                    batch_hidden_states[i:i+1], # Slice to keep 3D shape
-                    inputs["input_ids"][i:i+1],
-                    inputs["attention_mask"][i:i+1]
-                )
+                # STEP 10: Save Encoder Outputs Individually
+                for i in range(len(cluster_ids)):
+                    save_encoder_output(
+                        cluster_ids[i].item() if isinstance(cluster_ids[i], torch.Tensor) else cluster_ids[i], 
+                        batch_hidden_states[i:i+1], # Slice to keep 3D shape
+                        inputs["input_ids"][i:i+1],
+                        inputs["attention_mask"][i:i+1]
+                    )
+            except torch.cuda.OutOfMemoryError:
+                print("⚠️ Warning: GPU Out of Memory for batch. Attempting to clear cache and skip.")
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                continue
+            except Exception as e:
+                print(f"⚠️ Warning: Unexpected error encoding batch: {e}. Skipping batch.")
+                continue
             
             # CLEAR GPU CACHE is generally not needed every batch with FP16 + Batching 
             # unless we are right at the edge of OOM.

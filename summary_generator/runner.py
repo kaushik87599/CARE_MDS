@@ -14,9 +14,9 @@ class Phase7Runner:
     Integrates memory loading, state preparation, controlled decoding, and multi-metric evaluation.
     """
     def __init__(self, 
-                 fusion_dir: str = "cache/fusion", 
-                 output_dir: str = "outputs/generated_summaries",
-                 model_path: str = "models/models/final_mds_led",
+                 fusion_dir: str = os.getenv("FUSION_DIR", "cache/fusion"), 
+                 output_dir: str = os.getenv("OUTPUT_DIR", "outputs/generated_summaries"),
+                 model_path: str = os.getenv("MODEL_PATH", "models/models/final_mds_led"),
                  do_eval: bool = False):
         
         self.output_dir = output_dir
@@ -126,11 +126,22 @@ class Phase7Runner:
         cluster_files = sorted([f for f in os.listdir(self.loader.base_dir) if f.endswith(".pt")])
         cluster_ids = [f.replace(".pt", "") for f in cluster_files]
         
-        print(f"🚀 Starting Phase 7: Generating summaries for {len(cluster_ids)} clusters...")
+        # Persistence Logic: Identify existing results to resume
+        existing_results = [cid for cid in cluster_ids if os.path.exists(os.path.join(self.output_dir, f"{cid}_results.json"))]
+        last_cid = existing_results[-1] if existing_results else None
+        
+        if last_cid:
+            print(f"🔄 Found {len(existing_results)} existing summaries. Last reached: {last_cid}")
+            print(f"⏩ Skipping already processed clusters, but will re-generate {last_cid} to ensure integrity.")
+        
+        print(f"🚀 Starting Phase 7: Processing {len(cluster_ids)} clusters...")
         
         for cluster_id in tqdm(cluster_ids, desc="Generating Summaries"):
-            # Note: In a real run, we would fetch reference summaries and source sentences 
-            # from the dataset loader. For now, we run generation.
+            # Skip if results already exist, but NOT if it's the last one found 
+            # (it might be corrupted or incomplete from the previous run)
+            if os.path.exists(os.path.join(self.output_dir, f"{cluster_id}_results.json")) and cluster_id != last_cid:
+                continue
+                
             self.run_for_cluster(cluster_id)
             
         print(f"🏁 Phase 7 Complete. All outputs cached in {self.output_dir}")

@@ -10,7 +10,7 @@ import os
 
 
 
-MODEL_PATH = "models/models/final_mds_led"
+MODEL_PATH = os.getenv("MODEL_PATH", "models/models/final_mds_led")
 
 def load_saved_tokenizer(path = MODEL_PATH):
     set_device()
@@ -43,8 +43,10 @@ def load_saved_model(path = MODEL_PATH):
             torch_dtype=dtype,
             low_cpu_mem_usage=True
         )
+        
+        print(f"📦 Moving model to {device} memory... (this can take 30-90 seconds)")
         model.to(device)
-        print(f'Successfully loaded model in {dtype}.')
+        print(f'✅ Successfully loaded model in {dtype}.')
     except Exception as e:
         print(f"CRITICAL ERROR: Failed to load model from {path}.")
         print(f"Details: {e}")
@@ -73,7 +75,7 @@ def load_packed_context():
     use pickle to load the packed contexts.
     
     '''
-    file_path = "cache/cache/packed_contexts.pkl"
+    file_path = os.getenv("PACKED_CONTEXTS_PATH", "cache/cache/packed_contexts.pkl")
     try:
         if not os.path.exists(file_path):
             print(f"ERROR: Packed contexts file '{file_path}' not found. Ensure Phase 4 is completed.")

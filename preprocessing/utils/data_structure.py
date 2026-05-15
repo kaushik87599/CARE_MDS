@@ -3,6 +3,7 @@ import re
 import torch
 import numpy as np
 import time
+from tqdm import tqdm
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from transformers import pipeline
@@ -122,7 +123,7 @@ def analyze(dataset, article_col='article', summary_col='highlights', dataset_na
         return float(np.mean(redundant_pairs)) if len(redundant_pairs) > 0 else 0.0
 
     sample_size = min(100, num_docs)
-    redundancy_scores = [calculate_redundancy_from_embeddings(i, articles[i]) for i in range(sample_size)]
+    redundancy_scores = [calculate_redundancy_from_embeddings(i, articles[i]) for i in tqdm(range(sample_size), desc="Redundancy", leave=False)]
     metrics['redundancy_level'] = float(np.mean(redundancy_scores))
 
     # 4. Contradiction Frequency (NLI)
@@ -139,7 +140,7 @@ def analyze(dataset, article_col='article', summary_col='highlights', dataset_na
             return 1.0 if 'contradiction' in label else 0.0
         return 0.0
 
-    contradiction_scores = [calculate_contradiction(art) for art in articles[:min(50, num_docs)]]
+    contradiction_scores = [calculate_contradiction(art) for art in tqdm(articles[:min(50, num_docs)], desc="Contradiction", leave=False)]
     metrics['contradiction_frequency'] = float(np.mean(contradiction_scores))
     print(f'Finished NLI analysis in {time.time()-t0:.2f}s')
 

@@ -22,7 +22,8 @@ class DataLoader:
         """Loads a shard file containing multiple clusters."""
         file_path = os.path.join(self.shard_dir, shard_file)
         try:
-            return torch.load(file_path, map_location=self.device)
+            # Crucial: Load to CPU to avoid filling GPU RAM with many clusters at once
+            return torch.load(file_path, map_location='cpu')
         except Exception as e:
             raise RuntimeError(f"Error loading shard {file_path}: {e}")
 
@@ -30,7 +31,8 @@ class DataLoader:
         """Loads an individual cluster file."""
         file_path = os.path.join(self.output_dir, file_name)
         try:
-            return torch.load(file_path, map_location=self.device)
+            # Crucial: Load to CPU
+            return torch.load(file_path, map_location='cpu')
         except Exception as e:
             raise RuntimeError(f"Error loading file {file_path}: {e}")
 

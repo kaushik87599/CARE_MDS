@@ -7,7 +7,7 @@ class MemoryLoader:
     Phase 7 Memory Loader: Responsible for loading fused semantic memory 
     from Phase 6 outputs and preparing them for the decoder.
     """
-    def __init__(self, base_dir: str = "cache/fusion"):
+    def __init__(self, base_dir: str = os.getenv("FUSION_DIR", "cache/fusion")):
         # We use 'cache/fusion' as default based on Phase 6 spec, 
         # but the user mentioned 'cache/fusion_outputs' in the instructions.
         # We will check both or use the provided one.
@@ -70,10 +70,10 @@ class MemoryLoader:
                 memory["fused_sentence_vectors"] = torch.tensor(vectors).to(self.device)
                 vectors = memory["fused_sentence_vectors"]
             
-            if len(vectors.shape) != 2 or vectors.shape[1] != 1024:
-                print(f"⚠️ Warning: fused_sentence_vectors shape {vectors.shape} deviates from expected (*, 1024)")
-            else:
-                print(f"✅ fused_sentence_vectors validated: {vectors.shape}")
+            # if len(vectors.shape) != 2 or vectors.shape[1] != 1024:
+            #    print(f"⚠️ Warning: fused_sentence_vectors shape {vectors.shape} deviates from expected (*, 1024)")
+            # else:
+            #    print(f"✅ fused_sentence_vectors validated: {vectors.shape}")
 
         # 2. Validate entity_embeddings
         entities = memory["entity_embeddings"]
@@ -88,12 +88,12 @@ class MemoryLoader:
                 else:
                     # Convert to tensor if needed (unlikely if saved correctly)
                     pass
-            print(f"✅ entity_embeddings validated: {len(entities)} entities found.")
+            # print(f"✅ entity_embeddings validated: {len(entities)} entities found.")
 
         # 3. Contradiction memory
         conflicts = memory["contradiction_memory"]
-        if isinstance(conflicts, list):
-            print(f"✅ contradiction_memory validated: {len(conflicts)} signals found.")
+        # if isinstance(conflicts, list):
+        #    print(f"✅ contradiction_memory validated: {len(conflicts)} signals found.")
 
 if __name__ == "__main__":
     # Test loader (will fail if no files exist yet)

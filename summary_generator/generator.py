@@ -2,6 +2,7 @@ import torch
 from transformers import LEDForConditionalGeneration, AutoTokenizer
 from transformers.modeling_outputs import BaseModelOutput
 from typing import Dict, Any, Optional, List
+import os
 
 class SummaryGenerator:
     """
@@ -9,11 +10,17 @@ class SummaryGenerator:
     Uses fused reasoning memory as the encoder context for the LED decoder
     with controlled generation and optional contradiction-aware hedging.
     """
-    def __init__(self, model_path: str = "models/models/final_mds_led"):
+    def __init__(self, model_path: str = os.getenv("MODEL_PATH", "models/models/final_mds_led")):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"🚀 Loading Phase 7 Generator from {model_path}...")
+        self.model_dtype = torch.float16 if self.device.type == "cuda" else torch.float32
         
-        self.model = LEDForConditionalGeneration.from_pretrained(model_path).to(self.device)
+        print(f"🚀 Loading Phase 7 Generator from {model_path} ({self.model_dtype})...")
+        
+        self.model = LEDForConditionalGeneration.from_pretrained(
+            model_path,
+            torch_dtype=self.model_dtype,
+            low_cpu_mem_usage=True
+        ).to(self.device)
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         
         # Ensure model is in evaluation mode
@@ -42,7 +49,7 @@ class SummaryGenerator:
             
         return bias_dict
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def generate_summary(
         self, 
         fused_hidden_states: torch.Tensor, 
@@ -59,11 +66,11 @@ class SummaryGenerator:
             apply_hedging: If True, biases generation towards hedging language.
             **kwargs: Overrides for generation_args.
         """
-        # STEP 4: Recommended Controlled Generation Settings
+        # Optimized Controlled Generation Settings
         generation_args = {
             "max_length": 256,
             "min_length": 64,
-            "num_beams": 4,
+            "num_beams": 2, # Reduced from 4 for 2x speedup with similar quality
             "repetition_penalty": 2.0,
             "length_penalty": 1.0,
             "no_repeat_ngram_size": 3,
@@ -80,16 +87,24 @@ class SummaryGenerator:
         generation_args.update(kwargs)
 
         # Wrap the fused states in the format expected by HF 'generate'
+        # Ensure hidden states match model precision (FP16)
+        # Force model to model_dtype just in case it was loaded differently
+        self.model.to(dtype=self.model_dtype)
+        
         encoder_outputs = BaseModelOutput(
-            last_hidden_state=fused_hidden_states.to(self.device)
+            last_hidden_state=fused_hidden_states.to(self.device).to(self.model_dtype)
         )
 
+        # Remove custom flags from generation_args to avoid passing them to model.forward
+        generation_args.pop("apply_hedging", None)
+
         # Generate sequence with controlled parameters
-        output_ids = self.model.generate(
-            encoder_outputs=encoder_outputs,
-            attention_mask=fused_attention_mask.to(self.device),
-            **generation_args
-        )
+        with torch.cuda.amp.autocast(enabled=self.device.type == "cuda"):
+            output_ids = self.model.generate(
+                encoder_outputs=encoder_outputs,
+                attention_mask=fused_attention_mask.to(self.device),
+                **generation_args
+            )
 
         # Decode to text
         summary = self.tokenizer.decode(output_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=True)
