@@ -1,24 +1,17 @@
 import os
 import torch
 import re
-from tqdm import tqdm
-
-INPUT_DIR = "cache/encoder_outputs"
-OUTPUT_DIR = "cache/encoder_shards"
-import os
-import torch
-import re
 import gc
 from tqdm import tqdm
+from dotenv import load_dotenv
 
-# Dynamic path detection for Colab speed optimization
-if os.path.exists("/content/encoder_outputs"):
-    INPUT_DIR = "/content/encoder_outputs"
-else:
-    INPUT_DIR = "cache/encoder_outputs"
+# Load environment variables
+load_dotenv()
 
-OUTPUT_DIR = "cache/encoder_shards"
-SHARD_SIZE = 100 # Reverted to 100 as requested
+# Use centralized paths
+INPUT_DIR = os.getenv("ENCODER_OUT_DIR", "cache/encoder_outputs")
+OUTPUT_DIR = os.getenv("SHARD_DIR", "cache/encoder_shards")
+SHARD_SIZE = 100
 
 def get_next_shard_idx():
     """Finds the highest existing shard index to prevent overwriting."""
@@ -33,8 +26,6 @@ def get_next_shard_idx():
 
 def save_and_clean(idx, data, paths):
     shard_path = os.path.join(OUTPUT_DIR, f"shard_{idx:03d}.pt")
-    
-    # Aggressive directory check to prevent "Parent directory does not exist" errors
     os.makedirs(os.path.dirname(shard_path), exist_ok=True)
     
     print(f"\n💾 Saving Shard {idx} ({len(data)} items)...")
@@ -45,7 +36,7 @@ def save_and_clean(idx, data, paths):
             try:
                 os.remove(p)
             except OSError:
-                pass # Silently fail if file already removed or Drive is flaky
+                pass 
         return True
     return False
 
@@ -64,21 +55,11 @@ def run_sharding():
         print("No .pt files found to shard.")
         return
 
-    # Completeness check: Check for missing files in the range between min and max existing indices
     existing_indices = set(int(f.split(".")[0]) for f in files)
-    min_idx = min(existing_indices) if existing_indices else 0
-    max_idx = max(existing_indices) if existing_indices else 0
-    expected_indices = set(range(min_idx, max_idx + 1))
-    
-    missing = expected_indices - existing_indices
+    min_idx = min(existing_indices)
+    max_idx = max(existing_indices)
     
     print(f"Found {len(files)} .pt files to shard (Indices {min_idx} to {max_idx}).")
-    if missing:
-        print(f"⚠️ Warning: Found {len(missing)} missing .pt files in the range ({min_idx}-{max_idx}). This is normal if empty documents were skipped.")
-        if len(missing) < 10:
-            print(f"Missing indices: {sorted(list(missing))}")
-    else:
-        print("✅ All expected .pt files in the range are present.")
 
     shard_idx = get_next_shard_idx()
     shard_data = []
@@ -89,14 +70,12 @@ def run_sharding():
     for file_name in tqdm(files, desc="Sharding Progress"):
         file_path = os.path.join(INPUT_DIR, file_name)
         try:
-            # map_location='cpu' ensures we don't accidentally pull data into GPU RAM
             data = torch.load(file_path, weights_only=False, map_location='cpu')
             shard_data.append(data)
             current_batch_files.append(file_path)
 
             if len(shard_data) >= SHARD_SIZE:
                 save_and_clean(shard_idx, shard_data, current_batch_files)
-                # Clear memory immediately
                 del shard_data
                 del current_batch_files
                 gc.collect()

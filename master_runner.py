@@ -5,6 +5,10 @@ import traceback
 import time
 import argparse
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 def setup_environment():
     """
@@ -20,7 +24,7 @@ def setup_environment():
     if root_dir not in sys.path:
         sys.path.insert(0, root_dir)
     
-    # Ensure critical directories exist
+    # Ensure critical directories exist using centrally managed variables
     required_dirs = [
         os.getenv("CACHE_DIR", "cache"),
         os.getenv("PACKED_CACHE_DIR", "cache/cache"),
@@ -29,9 +33,8 @@ def setup_environment():
         os.getenv("FUSION_DIR", "cache/fusion"),
         os.getenv("ENTITY_DIR", "cache/entities"),
         os.getenv("CONTRADICTION_DIR", "cache/contradiction"),
-        os.getenv("BASE_OUTPUT_DIR", "outputs"),
-        os.getenv("OUTPUT_DIR", "outputs/generated_summaries"),
-        os.getenv("MODELS_DIR", "models")
+        os.getenv("MODELS_DIR", "models"),
+        os.getenv("OUTPUT_DIR", "outputs/generated_summaries")
     ]
     for d in required_dirs:
         os.makedirs(d, exist_ok=True)
@@ -72,10 +75,9 @@ def run_phase(name, func, *args, **kwargs):
         print(f"Error Type: {type(e).__name__}")
         print(f"Error Message: {e}")
         traceback.print_exc()
-        # We raise the exception to stop the pipeline if a critical phase fails
         raise e
 
-# Phase wrappers to keep main() clean
+# Phase wrappers
 def phase1_wrapper():
     sys.path.insert(0, os.path.join(os.getcwd(), "preprocessing"))
     from preprocessing.analyze_dataset import main as preprocessing_main
@@ -129,7 +131,6 @@ def main():
             print(f"  {p['num']}: {p['name']}")
         return
 
-    # Determine which phases to run
     run_list = []
     if args.phase:
         run_list = [p for p in phases if p["num"] == args.phase]
@@ -146,13 +147,10 @@ def main():
     print(f"{'='*70}")
     print(f"🌟 CARE_MDS: Multi-Document Summarization Pipeline 🌟")
     print(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Mode: {'Single Phase' if args.phase else 'Multi-Phase'}")
     print(f"{'='*70}")
 
     try:
-        # Initial Setup (always run to ensure dirs exist)
         setup_environment()
-        
         for p in run_list:
             run_phase(p["name"], p["func"])
 
@@ -171,3 +169,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

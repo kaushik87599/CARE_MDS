@@ -3,10 +3,14 @@ import pandas as pd
 import numpy as np
 import nltk
 from tqdm import tqdm
+from dotenv import load_dotenv
 from utils import (
     check_dataset, analyze, save_cache, setup_cache_dirs,
     save_fine_tuned_transformer, save_fine_tuned_ner
 )
+
+# Load environment variables
+load_dotenv()
 
 def main():
     # 0. Download required NLTK resources
@@ -23,14 +27,17 @@ def main():
         return
 
     # 2. Set up the cache directories
-    # Use clean names for directory creation
     dataset_names = [name.lower().replace('/', '_') for name in datasets.keys()]
     setup_cache_dirs(dataset_names)
 
-    # 3. Define sampling targets according to task requirements
+    # 3. Define sampling targets - Pull from .env with defaults
+    train_size = int(os.getenv("TRAIN_SAMPLE_SIZE", 100))
+    val_size = int(os.getenv("VAL_SAMPLE_SIZE", 50))
+    test_size = int(os.getenv("TEST_SAMPLE_SIZE", 100))
+
     sampling_targets = {
-        'CNN/Daily-News': {'train': 8000, 'validation': 1000, 'test': 1000},
-        'Multi-News': {'train': 4000, 'validation': 500, 'test': 500}
+        'CNN/Daily-News': {'train': train_size, 'validation': val_size, 'test': test_size},
+        'Multi-News': {'train': train_size, 'validation': val_size, 'test': test_size}
     }
 
     splits = ['train', 'validation', 'test']
@@ -62,7 +69,7 @@ def main():
             )
             filtered_len = len(split_dataset)
             if initial_len != filtered_len:
-                print(f"⚠️ Warning: Filtered out {initial_len - filtered_len} empty/corrupted records from {split_dataset}.")
+                print(f"⚠️ Warning: Filtered out {initial_len - filtered_len} empty/corrupted records.")
                 
             # 5. Apply Downsampling
             target_size = sampling_targets.get(dataset_name, {}).get(split)
@@ -72,7 +79,7 @@ def main():
             else:
                 process_dataset = split_dataset
                 
-            # 6. Analyze the dataset (Uses ner_utils and tokenizer_utils internally)
+            # 6. Analyze the dataset
             try:
                 analysis_output = analyze(
                     process_dataset, 
@@ -82,7 +89,6 @@ def main():
                 )
                 
                 # 7. Save analysis results to cache
-                # We include the split in the name to ensure save_cache can organize them
                 cache_name = f"{dataset_name}_{split}"
                 save_cache(
                     dataset_name=cache_name, 
@@ -99,30 +105,26 @@ def main():
                         print(f"  {key}: {value}")
             except Exception as e:
                 print(f"❌ Error analyzing {dataset_name} ({split}): {e}")
-                import traceback
-                traceback.print_exc()
                 
         print(f"\n{'='*60}\n")
         
-        # 8. Model Persistence (Integration with model_storage.py)
-        # Saves the model checkpoint and tokenizer to the local filesystem
+        # 8. Model Persistence
         from transformers import AutoModelForSeq2SeqLM
         from utils import get_tokenizer
         
         try:
             print(f"📦 Persisting model checkpoint for {dataset_name}...")
-            # Load the tokenizer and model
             tokenizer = get_tokenizer("allenai/led-large-16384")
             model = AutoModelForSeq2SeqLM.from_pretrained("allenai/led-large-16384")
             
-            # Define the specific output directory for the final trained checkpoint
-            model_output_dir = "models"
+            # Use environment variable for models directory
+            model_output_dir = os.getenv("MODELS_DIR", "models")
             model_save_name = "final_mds_led"
             
-            # Use our utility to save the checkpoint (config, weights, tokenizer)
             save_fine_tuned_transformer(model, tokenizer, output_dir=model_output_dir, model_name=model_save_name)
         except Exception as e:
-            print(f"⚠️ Model persistence failed for {dataset_name}: {e}")
+            print(f"⚠️ Model persistence failed: {e}")
 
 if __name__ == "__main__":
     main()
+

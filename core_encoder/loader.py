@@ -7,14 +7,21 @@ import torch
 import sys
 import pickle
 import os
+from dotenv import load_dotenv
 
+# Load environment variables
+load_dotenv()
 
+# Centralized Model Path
+def get_model_path():
+    models_dir = os.getenv("MODELS_DIR", "models")
+    return os.path.join(models_dir, "final_mds_led")
 
-MODEL_PATH = os.getenv("MODEL_PATH", "models/models/final_mds_led")
-
-def load_saved_tokenizer(path = MODEL_PATH):
+def load_saved_tokenizer(path=None):
+    if path is None:
+        path = get_model_path()
     set_device()
-    print("Loading tokenizer...")
+    print(f"Loading tokenizer from {path}...")
     try:
         if not os.path.exists(path):
             print(f"ERROR: Model path '{path}' does not exist.")
@@ -27,15 +34,16 @@ def load_saved_tokenizer(path = MODEL_PATH):
         sys.exit(1)
     return tokenizer
 
-def load_saved_model(path = MODEL_PATH):
+def load_saved_model(path=None):
+    if path is None:
+        path = get_model_path()
     device = set_device()
-    print(f"Loading model to {device}...")
+    print(f"Loading model to {device} from {path}...")
     try:
         if not os.path.exists(path):
             print(f"ERROR: Model path '{path}' does not exist.")
             sys.exit(1)
             
-        # Optimization: Use float16 if on GPU
         dtype = torch.float16 if device.type == "cuda" else torch.float32
         
         model = LEDForConditionalGeneration.from_pretrained(
@@ -44,9 +52,9 @@ def load_saved_model(path = MODEL_PATH):
             low_cpu_mem_usage=True
         )
         
-        print(f"📦 Moving model to {device} memory... (this can take 30-90 seconds)")
+        print(f"📦 Moving model to {device} memory...")
         model.to(device)
-        print(f'✅ Successfully loaded model in {dtype}.')
+        print(f'✅ Successfully loaded model.')
     except Exception as e:
         print(f"CRITICAL ERROR: Failed to load model from {path}.")
         print(f"Details: {e}")
@@ -55,30 +63,16 @@ def load_saved_model(path = MODEL_PATH):
     return model
 
 def get_encoder_from_model():
-    """
-    returns the encoder part of the model 
-    """
     model = load_saved_model()
     encoder = model.get_encoder()
     return encoder
 
-def get_decoder_from_model():
-    """
-    returns the decoder part of the model 
-    """
-    model = load_saved_model()
-    decoder = model.get_decoder()
-    return decoder
-
 def load_packed_context():
-    '''
-    use pickle to load the packed contexts.
-    
-    '''
-    file_path = os.getenv("PACKED_CONTEXTS_PATH", "cache/cache/packed_contexts.pkl")
+    packed_cache_dir = os.getenv("PACKED_CACHE_DIR", "cache/cache")
+    file_path = os.path.join(packed_cache_dir, "packed_contexts.pkl")
     try:
         if not os.path.exists(file_path):
-            print(f"ERROR: Packed contexts file '{file_path}' not found. Ensure Phase 4 is completed.")
+            print(f"ERROR: Packed contexts file '{file_path}' not found.")
             sys.exit(1)
         with open(file_path, "rb") as f:
             packed_contexts = pickle.load(f)
@@ -89,17 +83,9 @@ def load_packed_context():
         sys.exit(1)
    
     return packed_contexts
-    
-
 
 def set_device():
-    device = torch.device(
-    "cuda" if torch.cuda.is_available()
-    else "cpu"
-    )
-    if(device.type == "cuda"):
-        print("Using GPU for computation")
-    else:
-        print("Using CPU for computation")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using {device.type.upper()} for computation")
     return device
     
