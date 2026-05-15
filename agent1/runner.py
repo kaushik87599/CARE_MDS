@@ -51,7 +51,6 @@ def run_agent1():
 
             # BATCH PROCESSING
             cluster_embeddings = generate_sentence_embedding(all_cluster_sentences)
-            cluster_entities = extract_entities_batch(all_cluster_sentences)
             
             all_top_sentences = []
             for doc_idx, indices in enumerate(doc_sentence_mappings):
@@ -60,42 +59,66 @@ def run_agent1():
                 
                 sentences = [all_cluster_sentences[i] for i in indices]
                 sentence_embedding = cluster_embeddings[indices]
-                sentence_entities = [cluster_entities[i] for i in indices]
                 
                 doc_id = doc_idx
                 centroid = np.mean(sentence_embedding, axis=0)
                 scores = cosine_similarity(sentence_embedding, centroid.reshape(1, -1)).flatten()
                 
                 doc_ids = [doc_id] * len(sentences)
-                sentence_score_embedding_list = list(zip(sentences, scores, sentence_embedding, doc_ids, sentence_entities)) 
+                sentence_score_embedding_list = list(zip(sentences, scores, sentence_embedding, doc_ids)) 
                 
                 ranked = sorted(sentence_score_embedding_list, key=lambda x: x[1], reverse=True)
 
-                # Redundancy Filtering
-                threshold = 0.85
+                # Redundancy Filtering (Dynamic Thresholding)
+                num_docs = len(documents)
+                threshold = max(0.65, 0.85 - (num_docs * 0.02))
                 selected = []
                 selected_embs = []
                 
-                for sent, score, emb, d_id, ents in ranked:
+                for sent, score, emb, d_id in ranked:
                     if not selected:
-                        selected.append((sent, score, emb, d_id, ents))
+                        selected.append((sent, score, emb, d_id))
                         selected_embs.append(emb)
                         continue
 
                     similarities = cosine_similarity(emb.reshape(1, -1), np.array(selected_embs))[0]
                     if np.max(similarities) <= threshold:
-                        selected.append((sent, score, emb, d_id, ents))
+                        selected.append((sent, score, emb, d_id))
                         selected_embs.append(emb)
 
                 top_sentences = selected[:30]
                 all_top_sentences.extend(top_sentences)
 
             all_top_sentences = sorted(all_top_sentences, key=lambda x: x[1], reverse=True)
-            final_cluster_context = all_top_sentences[:30]
+            
+            # Cross-Doc Diversity: ensure at least one sentence from every source document
+            diversity_selected = []
+            selected_docs = set()
+            remaining_sentences = []
+            
+            for item in all_top_sentences:
+                doc_id = item[3]
+                if doc_id not in selected_docs:
+                    diversity_selected.append(item)
+                    selected_docs.add(doc_id)
+                else:
+                    remaining_sentences.append(item)
+                    
+            top_k_sentences = diversity_selected + remaining_sentences
+            top_k_sentences = top_k_sentences[:30]
+            
+            # Lazy NER processing: only extract entities for the final selected sentences
+            top_texts = [item[0] for item in top_k_sentences]
+            top_entities_batch = extract_entities_batch(top_texts)
+            
+            final_cluster_context = []
+            for i, (sent, score, emb, d_id) in enumerate(top_k_sentences):
+                final_cluster_context.append((sent, score, emb, d_id, top_entities_batch[i]))
 
             packed_cluster = {
                 "cluster_id": idx,
-                "packed_context": final_cluster_context
+                "packed_context": final_cluster_context,
+                "target_summary": row["summary"] if "summary" in row else ""
             }
             final_results.append(packed_cluster)
         

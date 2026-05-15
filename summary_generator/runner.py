@@ -55,8 +55,8 @@ class Phase7Runner:
             contradiction_memory = memory.get("contradiction_memory", [])
             entity_memory = memory.get("entity_embeddings", {}) or memory.get("entity_memory", {})
             
-            # Determine if hedging is needed
-            has_contradictions = len(contradiction_memory) > 0
+            # Determine if hedging is needed (calibrated intensity)
+            has_contradictions = len(contradiction_memory) > 2
             
             # 2. Reconstruct Decoder-Compatible Encoder States
             fused_hidden_states, fused_attention_mask = self.preparer.prepare_states(fused_sentence_vectors)
@@ -145,6 +145,12 @@ class Phase7Runner:
             if os.path.exists(os.path.join(self.output_dir, f"{cluster_id}_results.json")) and cluster_id != last_cid:
                 continue
             self.run_for_cluster(cluster_id)
+            
+            # Aggressive cleanup after every cluster
+            if torch.cuda.is_available():
+                import gc
+                torch.cuda.empty_cache()
+                gc.collect()
             
         print(f"🏁 Phase 7 Complete.")
 

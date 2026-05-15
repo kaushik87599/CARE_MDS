@@ -87,14 +87,23 @@ class SummaryEvaluator:
         return matches / len(input_entities)
 
     def _check_contradiction_handling(self, summary: str, contradictions: List[Dict]) -> Dict[str, Any]:
-        """Checks if contradictions are handled with hedging language."""
+        """Checks if contradictions are handled with hedging language and entities involved are mentioned."""
         if not contradictions:
-            return {"status": "no_contradictions", "score": 1.0}
+            return {"status": "no_contradictions", "score": 1.0, "contradiction_recall": 1.0}
             
         hedging_terms = ["suggest", "disagree", "conflict", "however", "although", "unclear", "disputed", "reports"]
         summary_lower = summary.lower()
         
         found_terms = [term for term in hedging_terms if term in summary_lower]
+        
+        # Check how many detected conflicts are mentioned (at least one entity from the conflict is in the summary)
+        addressed_conflicts = 0
+        for conflict in contradictions:
+            entities = conflict.get("entities", [])
+            if any(ent.lower() in summary_lower for ent in entities):
+                addressed_conflicts += 1
+                
+        recall = addressed_conflicts / len(contradictions)
         
         # We expect at least one hedging term if contradictions exist
         score = min(1.0, len(found_terms) / 2.0) if found_terms else 0.0
@@ -102,7 +111,8 @@ class SummaryEvaluator:
         return {
             "status": "contradictions_found",
             "hedging_score": score,
-            "hedging_terms_found": found_terms
+            "hedging_terms_found": found_terms,
+            "contradiction_recall": recall
         }
 
     def _calculate_factuality(self, summary: str, source_sentences: List[str]) -> float:

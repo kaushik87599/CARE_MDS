@@ -32,7 +32,7 @@ class SummaryGenerator:
         Creates a sequence bias dictionary for hedging phrases to handle contradictions.
         """
         hedging_phrases = [
-            "reports suggest",
+            "conflicting reports suggest",
             "sources disagree",
             "conflicting accounts",
             "however",

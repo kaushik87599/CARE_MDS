@@ -1,28 +1,24 @@
-# Core ML
+# Core ML & Transformers
 torch>=2.0.0
 transformers>=4.40.0
 datasets>=2.19.0
 accelerate>=0.30.0
 sentence-transformers>=2.7.0
 
-# Data Processing
+# Data Processing & Utilities
 pandas>=2.0.0
 numpy>=1.24.0
 scikit-learn>=1.4.0
 tqdm>=4.66.0
 python-dotenv>=1.0.0
 
-# NLP Tools
+# NLP Evaluation & Tools
 nltk>=3.8.0
 spacy>=3.7.0
+evaluate>=0.4.0
 bert-score>=0.3.13
 rouge-score>=0.1.2
 
-# Infrastructure
-huggingface-hub>=0.23.0
-safetensors>=0.4.0
-evaluate>=0.4.0
-
-# 🧠 Required Models (Reference for pre-download)
-# Spacy: en_core_web_sm, en_core_web_md
-# HuggingFace: allenai/led-large-16384, cross-encoder/nli-deberta-v3-small, all-MiniLM-L6-v2
+# 🚀 Model Downloads
+# Run 'python download_models.py' after installing dependencies.
+# Required: en_core_web_md, allenai/led-large-16384, cross-encoder/nli-deberta-v3-small, all-MiniLM-L6-v2

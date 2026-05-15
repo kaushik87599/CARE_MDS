@@ -24,7 +24,12 @@ def extract_sentences(packed_contexts):
             if not sentences:
                 continue
             text_block = " ".join(sentences)
-            cluster_texts.append({"cluster_id": cluster_id, "text": text_block})
+            target_summary = cluster.get("target_summary", "")
+            cluster_texts.append({
+                "cluster_id": cluster_id, 
+                "text": text_block,
+                "target_summary": target_summary
+            })
         except Exception:
             continue
     print(f"Successfully converted {len(cluster_texts)} clusters.")
@@ -47,9 +52,9 @@ def run_encoder_forward_pass(encoder, inputs, global_attention_mask):
 def extract_hidden_states(outputs):
     return outputs.last_hidden_state
 
-def save_encoder_output(cluster_id, hidden_states, input_ids, attention_mask):
+def save_encoder_output(cluster_id, hidden_states, input_ids, attention_mask, target_summary=None):
     """
-    Saves individual encoder outputs.
+    Saves individual encoder outputs along with ground truth for Fast-Fusion training.
     """
     save_dir = os.getenv("ENCODER_OUT_DIR", "cache/encoder_outputs")
     os.makedirs(save_dir, exist_ok=True)
@@ -60,6 +65,9 @@ def save_encoder_output(cluster_id, hidden_states, input_ids, attention_mask):
         "attention_mask": attention_mask.cpu(),
         "input_ids": input_ids.cpu()
     }
+    
+    if target_summary is not None:
+        save_data["target_summary"] = target_summary.cpu()
     
     file_path = os.path.join(save_dir, f"{cluster_id}.pt")
     torch.save(save_data, file_path)
@@ -84,7 +92,8 @@ def run_core_encoder():
         packed_contexts = load_packed_context()
         cluster_texts = extract_sentences(packed_contexts)
         
-        BATCH_SIZE = 4 
+        # Reduced for RTX 3050 (4GB VRAM) compatibility
+        BATCH_SIZE = 1 
         dataset = ClusterDataset(cluster_texts)
         dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
         
@@ -94,6 +103,7 @@ def run_core_encoder():
             try:
                 cluster_ids = batch["cluster_id"]
                 texts = batch["text"]
+                target_summaries = batch.get("target_summary", [""] * len(texts))
 
                 inputs = tokenizer(
                     texts,
@@ -109,13 +119,22 @@ def run_core_encoder():
                 
                 if batch_hidden_states.ndim != 3 or batch_hidden_states.shape[-1] != 1024:
                     continue
+                    
+                target_inputs = tokenizer(
+                    target_summaries,
+                    truncation=True,
+                    padding="max_length",
+                    max_length=256,
+                    return_tensors="pt"
+                ).to(device)
 
                 for i in range(len(cluster_ids)):
                     save_encoder_output(
                         cluster_ids[i].item() if isinstance(cluster_ids[i], torch.Tensor) else cluster_ids[i], 
                         batch_hidden_states[i:i+1],
                         inputs["input_ids"][i:i+1],
-                        inputs["attention_mask"][i:i+1]
+                        inputs["attention_mask"][i:i+1],
+                        target_inputs["input_ids"][i:i+1]
                     )
             except torch.cuda.OutOfMemoryError:
                 if torch.cuda.is_available():
@@ -123,6 +142,12 @@ def run_core_encoder():
                 continue
             except Exception:
                 continue
+            finally:
+                # Aggressive cleanup after every batch for 4GB VRAM stability
+                if torch.cuda.is_available():
+                    import gc
+                    torch.cuda.empty_cache()
+                    gc.collect()
         
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

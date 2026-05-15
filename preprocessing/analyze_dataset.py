@@ -31,12 +31,16 @@ def main():
     setup_cache_dirs(dataset_names)
 
     # 3. Define sampling targets - Pull from .env with defaults
-    train_size = int(os.getenv("TRAIN_SAMPLE_SIZE", 100))
-    val_size = int(os.getenv("VAL_SAMPLE_SIZE", 50))
-    test_size = int(os.getenv("TEST_SAMPLE_SIZE", 100))
+    cnn_train_size = int(os.getenv("CNN_TRAIN_SAMPLE_SIZE", 100))
+    cnn_val_size = int(os.getenv("CNN_VAL_SAMPLE_SIZE", 50))
+    cnn_test_size = int(os.getenv("CNN_TEST_SAMPLE_SIZE", 100))
+
+    multinews_train_size = int(os.getenv("MULTINEWS_TRAIN_SAMPLE_SIZE", 100))
+    multinews_val_size = int(os.getenv("MULTINEWS_VAL_SAMPLE_SIZE", 50))
+    multinews_test_size = int(os.getenv("MULTINEWS_TEST_SAMPLE_SIZE", 100))
 
     sampling_targets = {
-        'CNN/Daily-News': {'train': train_size, 'validation': val_size, 'test': test_size},
+        'CNN/Daily-News': {'train': cnn_train_size, 'validation': cnn_val_size, 'test': cnn_test_size},
         'Multi-News': {'train': train_size, 'validation': val_size, 'test': test_size}
     }
 

@@ -14,7 +14,7 @@ class ContradictionDetector:
         print(f"Initializing NLI pipeline with {model_name} on device {self.device}...")
         
         # Load the NLI pipeline with FP16 optimization if on GPU
-        model_kwargs = {"dtype": torch.float16} if self.device != -1 else {}
+        model_kwargs = {"torch_dtype": torch.float16} if self.device != -1 else {}
         
         self.nli_pipe = pipeline(
             "text-classification", 
@@ -87,7 +87,7 @@ class ContradictionDetector:
 
         results = []
         try:
-            with torch.no_grad():
+            with torch.inference_mode():
                 # Using a generator for the pipeline can be more memory efficient
                 def data_generator():
                     for pair in pairs_list:
@@ -103,7 +103,7 @@ class ContradictionDetector:
             
             # Retry with batch size 1 for maximum memory safety
             try:
-                with torch.no_grad():
+                with torch.inference_mode():
                     def data_generator_retry():
                         for pair in pairs_list:
                             yield pair

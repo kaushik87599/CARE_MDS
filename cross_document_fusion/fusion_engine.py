@@ -41,7 +41,7 @@ class FusionEngine:
         """
         Processes a single cluster through the entire pipeline.
         """
-        with torch.no_grad():
+        with torch.inference_mode():
             sentence_vectors, doc_ids = self.representer.recover_vectors(
                 cluster_data["hidden_states"], 
                 cluster_data["input_ids"], 
@@ -132,7 +132,9 @@ class FusionEngine:
             torch.save(fusion_memory["contradiction_signals"], os.path.join(contradiction_dir, f"{cluster_id}_conflicts.pt"))
             
             if torch.cuda.is_available():
+                import gc
                 torch.cuda.empty_cache()
+                gc.collect()
             
         print(f"✅ Phase 5 complete.")
 
